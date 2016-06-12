@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"github.com/rthornton128/goncurses"
 	"io"
 	"io/ioutil"
 	"os"
@@ -33,7 +34,7 @@ func gather_directory_names(directories []os.FileInfo) []string {
 
 		total, _ := strconv.Atoi(strings.TrimSpace(buffer.String()))
 
-		names = append(names, fmt.Sprintf("%s\t%d", directory.Name(), total))
+		names = append(names, fmt.Sprintf("%s -- %d", directory.Name(), total))
 	}
 
 	return names
@@ -50,6 +51,15 @@ func gather_non_directory_names(nonDirectories []os.FileInfo) []string {
 }
 
 func main() {
+	stdscr, _ := goncurses.Init()
+	defer goncurses.End()
+
+	goncurses.Raw(true)
+	goncurses.Echo(false)
+	goncurses.Cursor(0)
+	stdscr.Clear()
+	stdscr.Keypad(true)
+
 	// If this starts to become a performance problem when inspecting
 	// directories with large numbers of direct children, look into using
 	// os.File.Readdir instead to avoid the needless sort.
@@ -65,13 +75,50 @@ func main() {
 		}
 	}
 
+	menuItems := []*goncurses.MenuItem{}
 	directoryNames := gather_directory_names(directories)
 	for _, directoryName := range directoryNames {
-		fmt.Println(directoryName)
+		item, err := goncurses.NewItem(directoryName, "")
+		if err != nil {
+			stdscr.Print(err)
+		}
+		menuItems = append(menuItems, item)
+		defer item.Free()
 	}
-	fmt.Println(strings.Repeat("-", 80))
+	spacer, _ := goncurses.NewItem(strings.Repeat("-", 80), "")
+	menuItems = append(menuItems, spacer)
 	nonDirectoryNames := gather_non_directory_names(nonDirectories)
 	for _, nonDirectoryName := range nonDirectoryNames {
-		fmt.Println(nonDirectoryName)
+		item, err := goncurses.NewItem(nonDirectoryName, "")
+		if err != nil {
+			stdscr.Print(err)
+		}
+		menuItems = append(menuItems, item)
+		defer item.Free()
+	}
+
+	menu, err := goncurses.NewMenu(menuItems)
+	if err != nil {
+		stdscr.Print(err)
+		return
+	}
+	defer menu.Free()
+	menu.Post()
+
+	stdscr.MovePrint(20, 0, "'q' to exit")
+	stdscr.Refresh()
+
+	for {
+		goncurses.Update()
+		ch := stdscr.GetChar()
+
+		switch goncurses.KeyString(ch) {
+		case "q":
+			return
+		case "down", "j":
+			menu.Driver(goncurses.REQ_DOWN)
+		case "up", "k":
+			menu.Driver(goncurses.REQ_UP)
+		}
 	}
 }
